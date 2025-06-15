@@ -2,12 +2,13 @@ name: Daily Tibia XP Notifier
 
 on:
   schedule:
-    - cron: '0 8 * * *'  # Every day at 08:00 UTC
+    - cron: '0 8 * * *'  # Every day at 08:00 UTC (GMT)
   workflow_dispatch:
 
 jobs:
   send-xp-report:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
