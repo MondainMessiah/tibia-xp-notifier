@@ -3,10 +3,10 @@ from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 import os
 
-# Replace with your Discord webhook (from GitHub Actions secret or .env)
+# Get the webhook URL from environment variable (GitHub Actions Secret)
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
-# Characters to track
+# List of Tibia characters to track
 CHARACTERS = [
     "Ilumine",
     "Kamikedzei",
@@ -26,13 +26,13 @@ def fetch_character_xp(name):
     soup = BeautifulSoup(response.text, "html.parser")
     rows = soup.find_all("tr")
 
-    # Match date format used on GuildStats
+    # Yesterday's date in YYYY-MM-DD format
     yesterday = (datetime.utcnow() - timedelta(days=1)).strftime('%Y-%m-%d')
 
     for row in rows:
         cols = row.find_all("td")
         if len(cols) >= 3:
-            date_text = cols[0].text.strip().split()[0]  # Remove any icons
+            date_text = cols[0].text.strip().split()[0]  # e.g., "2025-06-14"
             xp_gained = cols[2].text.strip()
             if date_text == yesterday:
                 return f"- {name}: {xp_gained} XP"
@@ -56,10 +56,10 @@ def send_to_discord(message):
     if response.status_code != 204:
         print(f"❌ Failed to send message: {response.status_code} - {response.text}")
     else:
-        print("✅ Message sent to Discord!")
+        print("✅ Message sent to Discord.")
 
 if __name__ == "__main__":
     print("🔍 Fetching Tibia XP data...")
     message = build_report()
-    print("📤 Message:\n", message)
+    print("📤 Message preview:\n", message)
     send_to_discord(message)
