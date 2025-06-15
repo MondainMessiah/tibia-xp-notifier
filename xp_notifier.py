@@ -3,43 +3,64 @@ from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 import os
 
-# List of your characters
-characters = [
-    "Illumine", "Kamikedzei", "Hex good", "Jay the pally", "Zanron the monk"
-]
+# ✅ Add your actual guildstats URL here
+GUILD_URL = "https://www.guildstats.eu/stats/view/guild/YOUR-GUILD-NAME"
 
-# Replace with your guildstats URL
-GUILD_URL = "https://www.guildstats.eu/stats/view/guild/YOUR_GUILD_NAME"
+# ✅ Characters to track
+CHARACTERS = ["Illumine", "Kamikedzei", "Hex good", "Jay the pally", "Zanron the monk"]
+
+# ✅ Webhook from GitHub Secrets or .env
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
 def fetch_xp_gains():
-    yesterday = datetime.utcnow().date() - timedelta(days=1)
-    response = requests.get(GUILD_URL)
+    try:
+        response = requests.get(GUILD_URL)
+        response.raise_for_status()
+    except requests.RequestException as e:
+        return f"❌ Failed to fetch guild page: {e}"
+
     soup = BeautifulSoup(response.text, "html.parser")
 
-    table = soup.find("table", class_="statistics")  # Adjust class name if needed
+    table = soup.find("table", class_="statistics")
     if not table:
-        return "⚠️ Could not find XP table."
+        return "❌ Could not find XP table on guildstats.eu."
 
-    rows = table.find_all("tr")[1:]  # Skip header
-    xp_report = f"📊 **Tibia XP Gains - {yesterday}**\n"
+    rows = table.find_all("tr")[1:]  # skip header
+    yesterday = datetime.utcnow().date() - timedelta(days=1)
+    report = f"📊 **Tibia XP Gains – {yesterday}**\n"
 
+    found = False
     for row in rows:
         cols = row.find_all("td")
-        if len(cols) >= 4:
-            name = cols[0].text.strip()
-            xp_gained = cols[3].text.strip()
-            if name in characters:
-                xp_report += f"- {name}: {xp_gained} XP\n"
+        if len(cols) < 4:
+            continue
 
-    return xp_report.strip()
+        name = cols[0].text.strip()
+        xp_gained = cols[3].text.strip()
+
+        for tracked_name in CHARACTERS:
+            if name.lower() == tracked_name.lower():
+                report += f"- {name}: {xp_gained} XP\n"
+                found = True
+
+    if not found:
+        report += "No XP data found for specified characters."
+
+    return report
 
 def send_to_discord(message):
+    if not DISCORD_WEBHOOK_URL:
+        print("❌ DISCORD_WEBHOOK_URL not set.")
+        return
+
     payload = {"content": message}
     response = requests.post(DISCORD_WEBHOOK_URL, json=payload)
     if response.status_code != 204:
-        print(f"Failed to send message: {response.text}")
+        print(f"❌ Failed to send message: {response.status_code} - {response.text}")
+    else:
+        print("✅ Message sent to Discord!")
 
 if __name__ == "__main__":
     message = fetch_xp_gains()
+    print("Debug Output:\n", message)  # 👀 for GitHub Actions log
     send_to_discord(message)
