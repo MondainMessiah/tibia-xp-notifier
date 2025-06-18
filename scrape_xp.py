@@ -1,10 +1,13 @@
 import requests
 import json
 import os
+import time
 from bs4 import BeautifulSoup
+from datetime import datetime
 
 CHAR_FILE = "characters.txt"
-JSON_PATH = "xp_log.json"
+HISTORY_PATH = "xp_history.json"
+DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 
 def scrape_xp(char_name):
     url = f"https://guildstats.eu/character?name={char_name.replace(' ', '+')}"
@@ -22,30 +25,23 @@ def load_characters():
     with open(CHAR_FILE, "r") as f:
         return [line.strip() for line in f if line.strip()]
 
-def load_existing():
-    if os.path.exists(JSON_PATH):
-        with open(JSON_PATH, "r") as f:
+def load_history():
+    if os.path.exists(HISTORY_PATH):
+        with open(HISTORY_PATH, "r") as f:
             return json.load(f)
     return {}
 
-def save_if_changed(data):
-    old = load_existing()
-    if data == old:
-        print("No XP changes.")
-        return False
-    with open(JSON_PATH, "w") as f:
-        json.dump(data, f, indent=2)
-    print("XP data updated.")
-    return True
+def save_history(history):
+    with open(HISTORY_PATH, "w") as f:
+        json.dump(history, f, indent=2)
 
 def post_to_discord(message):
-    webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
-    if not webhook_url:
+    if not DISCORD_WEBHOOK_URL:
         print("DISCORD_WEBHOOK_URL environment variable not set. Skipping Discord notification.")
         return
     payload = {"content": message}
     try:
-        resp = requests.post(webhook_url, json=payload)
+        resp = requests.post(DISCORD_WEBHOOK_URL, json=payload)
         if resp.status_code in (200, 204):
             print("Posted to Discord successfully.")
         else:
@@ -55,55 +51,76 @@ def post_to_discord(message):
 
 if __name__ == "__main__":
     characters = load_characters()
-    all_xp = {}
+    today = datetime.utcnow().strftime("%Y-%m-%d")
 
+    xp_today = {}
     for name in characters:
         print(f"Scraping {name}...")
-        all_xp[name] = scrape_xp(name)
+        xp_data = scrape_xp(name)
+        time.sleep(1.5)
+        if not xp_data:
+            continue
+        # Grab the latest XP entry
+        latest_date = max(xp_data.keys(), default=None)
+        if latest_date:
+            xp_str = xp_data[latest_date].replace(",", "").replace("+", "").strip()
+            try:
+                xp_today[name] = int(xp_str)
+            except ValueError:
+                print(f"Invalid XP value for {name}: {xp_data[latest_date]}")
 
-    if not all_xp:
-        print("No data scraped for any characters.")
+    if not xp_today:
+        print("No XP data scraped.")
         exit()
 
-    if save_if_changed(all_xp):
-        # Determine latest date with XP data across all characters
-        latest_dates = [max(xp.keys()) for xp in all_xp.values() if xp]
-        if not latest_dates:
-            print("No XP dates found.")
-            exit()
-        latest_date = max(latest_dates)
+    # Load and update history
+    history = load_history()
+    if today in history and history[today] == xp_today:
+        print("No changes in XP data. Not updating.")
+        exit()
 
-        # Prepare list of (name, xp_value) for the latest date
-        daily_xp_ranking = []
-        for name, xp_dict in all_xp.items():
-            xp_str = xp_dict.get(latest_date, "+0").replace(",", "").replace("+", "").strip()
-            try:
-                xp_val = int(xp_str)
-            except ValueError:
-                xp_val = 0
-            daily_xp_ranking.append((name, xp_val))
+    history[today] = xp_today
+    save_history(history)
 
-        # Sort descending by XP
-        daily_xp_ranking.sort(key=lambda x: x[1], reverse=True)
+    # Compare with yesterday's data
+    sorted_dates = sorted(history.keys())
+    if len(sorted_dates) < 2:
+        print("Not enough data for XP comparison.")
+        exit()
 
-        # Assign medals for top 3
-        medals = ["🥇", "🥈", "🥉"]
-        medaled_output = []
-        print(f"\n🏆 Daily XP Gains for {latest_date}:")
-        for idx, (name, xp_val) in enumerate(daily_xp_ranking):
-            medal = medals[idx] if idx < 3 else ""
-            line = f"{medal} {name}: {xp_val:,} XP" if medal else f"{name}: {xp_val:,} XP"
-            print(line)
-            medaled_output.append(line)
+    yesterday = sorted_dates[-2]
+    xp_yesterday = history[yesterday]
 
-        # Send to Discord
-        message = f"🏆 Daily XP Gains for {latest_date}:\n" + "\n".join(medaled_output)
-        post_to_discord(message)
+    xp_diff = {}
+    for name in characters:
+        today_xp = xp_today.get(name, 0)
+        yest_xp = xp_yesterday.get(name, 0)
+        gain = today_xp - yest_xp
+        xp_diff[name] = gain
 
-        # Commit & push changes to GitHub
-        os.system("git config user.name github-actions")
-        os.system("git config user.email github-actions@github.com")
-        os.system("git add xp_log.json")
-        commit_message = f"Daily XP update {latest_date}\n" + "\n".join(medaled_output)
-        os.system(f'git commit -m "{commit_message}"')
+    # Sort and format message
+    ranked = sorted(xp_diff.items(), key=lambda x: x[1], reverse=True)
+    medals = ["🥇", "🥈", "🥉"]
+    message_lines = []
+
+    print(f"\n🏆 XP Gains from {yesterday} to {today}:")
+    for idx, (name, gain) in enumerate(ranked):
+        medal = medals[idx] if idx < 3 else ""
+        line = f"{medal} {name}: {gain:,} XP" if medal else f"{name}: {gain:,} XP"
+        print(line)
+        message_lines.append(line)
+
+    # Post to Discord
+    message = f"🏆 XP Gains from {yesterday} to {today}:\n" + "\n".join(message_lines)
+    post_to_discord(message)
+
+    # Commit to Git
+    os.system("git config user.name github-actions")
+    os.system("git config user.email github-actions@github.com")
+    os.system("git add xp_history.json")
+    commit_msg = f"XP update {today}\n" + "\n".join(message_lines)
+    commit_result = os.system(f'git commit -m "{commit_msg}"')
+    if commit_result == 0:
         os.system("git push")
+    else:
+        print("No changes to commit.")
