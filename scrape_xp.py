@@ -5,7 +5,6 @@ from bs4 import BeautifulSoup
 
 CHAR_FILE = "characters.txt"
 JSON_PATH = "xp_log.json"
-DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")  # Set your webhook as an env variable
 
 def scrape_xp(char_name):
     url = f"https://guildstats.eu/character?name={char_name.replace(' ', '+')}"
@@ -40,13 +39,14 @@ def save_if_changed(data):
     return True
 
 def post_to_discord(message):
-    if not DISCORD_WEBHOOK_URL:
-        print("DISCORD_WEBHOOK_URL not set. Skipping Discord notification.")
+    webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
+    if not webhook_url:
+        print("DISCORD_WEBHOOK_URL environment variable not set. Skipping Discord notification.")
         return
     payload = {"content": message}
     try:
-        resp = requests.post(DISCORD_WEBHOOK_URL, json=payload)
-        if resp.status_code == 204 or resp.status_code == 200:
+        resp = requests.post(webhook_url, json=payload)
+        if resp.status_code in (200, 204):
             print("Posted to Discord successfully.")
         else:
             print(f"Failed to post to Discord: {resp.status_code} {resp.text}")
@@ -96,7 +96,7 @@ if __name__ == "__main__":
             print(line)
             medaled_output.append(line)
 
-        # Post to Discord
+        # Send to Discord
         message = f"🏆 Daily XP Gains for {latest_date}:\n" + "\n".join(medaled_output)
         post_to_discord(message)
 
