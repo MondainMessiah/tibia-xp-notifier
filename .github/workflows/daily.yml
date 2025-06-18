@@ -2,8 +2,8 @@ name: Daily Tibia XP Tracker
 
 on:
   schedule:
-    - cron: '0 8 * * *'  # Runs daily at 08:00 UTC
-  workflow_dispatch:     # Manual trigger support
+    - cron: '0 8 * * *'  # Daily at 08:00 UTC
+  workflow_dispatch:
 
 jobs:
   scrape-and-push:
@@ -24,4 +24,18 @@ jobs:
           pip install beautifulsoup4 requests
 
       - name: Run scraper script
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: python scrape_xp.py
+
+      - name: Set up Git config
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
+
+      - name: Push changes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}
+          git push
