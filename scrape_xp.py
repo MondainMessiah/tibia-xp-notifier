@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup
 
 CHAR_FILE = "characters.txt"
 JSON_PATH = "xp_log.json"
+DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")  # Set your webhook as an env variable
 
 def scrape_xp(char_name):
     url = f"https://guildstats.eu/character?name={char_name.replace(' ', '+')}"
@@ -37,6 +38,20 @@ def save_if_changed(data):
         json.dump(data, f, indent=2)
     print("XP data updated.")
     return True
+
+def post_to_discord(message):
+    if not DISCORD_WEBHOOK_URL:
+        print("DISCORD_WEBHOOK_URL not set. Skipping Discord notification.")
+        return
+    payload = {"content": message}
+    try:
+        resp = requests.post(DISCORD_WEBHOOK_URL, json=payload)
+        if resp.status_code == 204 or resp.status_code == 200:
+            print("Posted to Discord successfully.")
+        else:
+            print(f"Failed to post to Discord: {resp.status_code} {resp.text}")
+    except Exception as e:
+        print(f"Exception posting to Discord: {e}")
 
 if __name__ == "__main__":
     characters = load_characters()
@@ -80,6 +95,10 @@ if __name__ == "__main__":
             line = f"{medal} {name}: {xp_val:,} XP" if medal else f"{name}: {xp_val:,} XP"
             print(line)
             medaled_output.append(line)
+
+        # Post to Discord
+        message = f"🏆 Daily XP Gains for {latest_date}:\n" + "\n".join(medaled_output)
+        post_to_discord(message)
 
         # Commit & push changes to GitHub
         os.system("git config user.name github-actions")
